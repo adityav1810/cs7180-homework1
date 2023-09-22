@@ -6,6 +6,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def save_LR_HR_SR_images(args):
+    '''
+    Helper method for saving results.
+    '''
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     dataset = mydata(GT_path=args.GT_path, LR_path=args.LR_path, in_memory=False, transform=None)
@@ -42,9 +45,12 @@ def save_LR_HR_SR_images(args):
             Image.fromarray(output).save(os.path.join(sr_save_path, f"SR_res_{i:04d}.png"))
 
             
-import matplotlib.pyplot as plt
+
 
 def plot_images_side_by_side():
+    '''
+    Another method to present images side by side
+    '''
     sr_image_dir = './result/Set14_Test/'
     n_images = len([name for name in os.listdir(sr_image_dir) if os.path.isfile(os.path.join(sr_image_dir, name))])
 
@@ -118,7 +124,7 @@ class ResizeImages:
             except Exception as e:
                 print(f"Error processing {img_file}: {e}")
 
-                
+
 # Resize low-resolution images
 lr_target_size = (490,490)
 resizer_LR = ResizeImages(args.LR_path, 'dataSet/DIV2K/LR_Set14_resized_490', lr_target_size)
