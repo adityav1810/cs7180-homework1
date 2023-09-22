@@ -5,6 +5,7 @@ Authors : Luv Verma and Aditya Varshney
 
 This file contains the method to perform training on the model
 '''
+
 import torch
 from torch.utils.data import Dataset
 import os
@@ -13,107 +14,116 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 
-def train(args):
+def perform_training(params):
     '''
-    Method to train the network. takes in params from  main.py .
-    
+    Function to train the SuperResNet.
     '''
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # set the transformations
-    transform  = transforms.Compose([crop(args.scale, args.patch_size), augmentation()])
-    # load dataset from GT_PATH and LR_PATH
-    dataset = mydata(GT_path = args.GT_path, LR_path = args.LR_path, in_memory = args.in_memory, transform = transform)
-    loader = DataLoader(dataset, batch_size = args.batch_size, shuffle = True, num_workers = args.num_workers)
-    # initialise the Generator
-    generator = Generator(img_feat = 3, n_feats = 64, kernel_size = 3, num_block = args.res_num, scale=args.scale)
+    device_config = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    transformations  = transforms.Compose([crop(params.scale, params.patch_size), augmentation()])
+    
+    data_set = MyData(GT_path = params.GT_path, LR_path = params.LR_path, in_memory = params.in_memory, transform = transformations)
+    data_loader = DataLoader(data_set, batch_size = params.batch_size, shuffle = True, num_workers = params.num_workers)
+    
+    superres_gen = SuperResGenerator(input_channels = 3, feature_channels = 64, filter_size = 3, num_res_blocks = params.res_num, scale=params.scale)
 
-    if args.fine_tuning:        
-        generator.load_state_dict(torch.load(args.generator_path))
+    if params.fine_tuning:        
+        superres_gen.load_state_dict(torch.load(params.generator_path))
         print("pre-trained model is loaded")
-        print("path : %s"%(args.generator_path))
+        print("path : %s"%(params.generator_path))
         
-    generator = generator.to(device)
-    generator.train()
-    l2_loss = nn.MSELoss()
-    g_optim = optim.Adam(generator.parameters(), lr = 1e-4)
-    pre_epoch = 0
-    fine_epoch = 0
+    superres_gen = superres_gen.to(device_config)
+    superres_gen.train()
     
-    # Train using L2_loss
-    while pre_epoch < args.pre_train_epoch:
-        for i, tr_data in enumerate(loader):
-            gt = tr_data['GT'].to(device)
-            lr = tr_data['LR'].to(device)
-            output, _ = generator(lr)
-            loss = l2_loss(gt, output)
-            g_optim.zero_grad()
+    mse_loss = nn.MSELoss()
+    gen_optimizer = optim.Adam(superres_gen.parameters(), lr = 1e-4)
+    pre_training_epoch = 0
+    post_training_epoch = 0
+    
+    # Pre-training using L2 loss
+    while pre_training_epoch < params.pre_train_epoch:
+        for idx, train_data in enumerate(data_loader):
+            ground_truth = train_data['GT'].to(device_config)
+            low_res = train_data['LR'].to(device_config)
+            generated_output, _ = superres_gen(low_res)
+            loss = mse_loss(ground_truth, generated_output)
+            gen_optimizer.zero_grad()
             loss.backward()
-            g_optim.step()
-        pre_epoch += 1
-        if pre_epoch % 2 == 0:
-            print(pre_epoch)
+            gen_optimizer.step()
+        
+        pre_training_epoch += 1
+        if pre_training_epoch % 2 == 0:
+            print(pre_training_epoch)
             print(loss.item())
             print('=========')
-        if pre_epoch % 100 ==0:
-            torch.save(generator.state_dict(), './model/pre_trained_model_%03d.pt'%pre_epoch)
+        if pre_training_epoch % 100 ==0:
+            torch.save(superres_gen.state_dict(), './model/pre_trained_model_%03d.pt'%pre_training_epoch)
 
-        
-    #Train using perceptual & adversarial loss
-    vgg_net = vgg19().to(device)
-    vgg_net = vgg_net.eval()
-    discriminator = Discriminator(patch_size = args.patch_size * args.scale)
-    discriminator = discriminator.to(device)
-    discriminator.train()
-    d_optim = optim.Adam(discriminator.parameters(), lr = 1e-4)
-    scheduler = optim.lr_scheduler.StepLR(g_optim, step_size = 2000, gamma = 0.1)
-    VGG_loss = perceptual_loss(vgg_net)
-    cross_ent = nn.BCELoss()
-    tv_loss = TVLoss()
-    real_label = torch.ones((args.batch_size, 1)).to(device)
-    fake_label = torch.zeros((args.batch_size, 1)).to(device)
-    while fine_epoch < args.fine_train_epoch:
+    # Post-training using perceptual & adversarial loss
+    vgg_model = Vgg19().to(device_config)
+    vgg_model = vgg_model.eval()
+    superres_discriminator = SuperResDiscriminator(patch_size = params.patch_size * params.scale)
+    superres_discriminator = superres_discriminator.to(device_config)
+    superres_discriminator.train()
+    
+    discrim_optimizer = optim.Adam(superres_discriminator.parameters(), lr = 1e-4)
+    scheduler = optim.lr_scheduler.StepLR(gen_optimizer, step_size = 2000, gamma = 0.1)
+    
+    perceptual_loss_calc = PerceptualLoss(vgg_model)
+    cross_entropy_loss = nn.BCELoss()
+    total_variance_loss_calc = TotalVariationLoss()
+    
+    real_labels = torch.ones((params.batch_size, 1)).to(device_config)
+    fake_labels = torch.zeros((params.batch_size, 1)).to(device_config)
+    
+    while post_training_epoch < params.fine_train_epoch:
         scheduler.step()
-        for i, tr_data in enumerate(loader):
-            gt = tr_data['GT'].to(device)
-            lr = tr_data['LR'].to(device)
+        for idx, train_data in enumerate(data_loader):
+            ground_truth = train_data['GT'].to(device_config)
+            low_res = train_data['LR'].to(device_config)
                         
             ## Training Discriminator
-            output, _ = generator(lr)
-            fake_prob = discriminator(output)
-            real_prob = discriminator(gt)
-            d_loss_real = cross_ent(real_prob, real_label)
-            d_loss_fake = cross_ent(fake_prob, fake_label)
-            d_loss = d_loss_real + d_loss_fake
-            g_optim.zero_grad()
-            d_optim.zero_grad()
-            d_loss.backward()
-            d_optim.step()
+            generated_output, _ = superres_gen(low_res)
+            fake_probs = superres_discriminator(generated_output)
+            real_probs = superres_discriminator(ground_truth)
+            
+            d_loss_real = cross_entropy_loss(real_probs, real_labels)
+            d_loss_fake = cross_entropy_loss(fake_probs, fake_labels)
+            
+            total_d_loss = d_loss_real + d_loss_fake
+            
+            gen_optimizer.zero_grad()
+            discrim_optimizer.zero_grad()
+            total_d_loss.backward()
+            discrim_optimizer.step()
             
             ## Training Generator
-            output, _ = generator(lr)
-            fake_prob = discriminator(output)
-            _percep_loss, hr_feat, sr_feat = VGG_loss((gt + 1.0) / 2.0, (output + 1.0) / 2.0, layer = args.feat_layer)
-            L2_loss = l2_loss(output, gt)
-            percep_loss = args.vgg_rescale_coeff * _percep_loss
-            adversarial_loss = args.adv_coeff * cross_ent(fake_prob, real_label)
-            total_variance_loss = args.tv_loss_coeff * tv_loss(args.vgg_rescale_coeff * (hr_feat - sr_feat)**2)
-            g_loss = percep_loss + adversarial_loss + total_variance_loss + L2_loss
-            g_optim.zero_grad()
-            d_optim.zero_grad()
-            g_loss.backward()
-            g_optim.step()
+            generated_output, _ = superres_gen(low_res)
+            fake_probs = superres_discriminator(generated_output)
+            percep_loss_value, high_res_feature, super_res_feature = perceptual_loss_calc((ground_truth + 1.0) / 2.0, (generated_output + 1.0) / 2.0, layer = params.feat_layer)
+            
+            l2_loss_value = mse_loss(generated_output, ground_truth)
+            actual_perceptual_loss = params.vgg_rescale_coeff * percep_loss_value
+            adversarial_loss_value = params.adv_coeff * cross_entropy_loss(fake_probs, real_labels)
+            total_var_loss = params.tv_loss_coeff * total_variance_loss_calc(params.vgg_rescale_coeff * (high_res_feature - super_res_feature)**2)
+            
+            total_gen_loss = actual_perceptual_loss + adversarial_loss_value + total_var_loss + l2_loss_value
+            
+            gen_optimizer.zero_grad()
+            discrim_optimizer.zero_grad()
+            total_gen_loss.backward()
+            gen_optimizer.step()
 
-
-        fine_epoch += 1
-        if fine_epoch % 2 == 0:
+        post_training_epoch += 1
+        if post_training_epoch % 2 == 0:
             # print results every even epoch
-            print(fine_epoch)
-            print(g_loss.item())
-            print(d_loss.item())
+            print(post_training_epoch)
+            print(total_gen_loss.item())
+            print(total_d_loss.item())
             print('=========')
 
-        if fine_epoch % 500 ==0:
+        if post_training_epoch % 500 ==0:
             # save model checkpoint every 500 iterations
-            torch.save(generator.state_dict(), './model/SRGAN_gene_%03d.pt'%fine_epoch)
-            torch.save(discriminator.state_dict(), './model/SRGAN_discrim_%03d.pt'%fine_epoch)
+            torch.save(superres_gen.state_dict(), './model/SuperResNet_gen_%03d.pt'%post_training_epoch)
+            torch.save(superres_discriminator.state_dict(), './model/SuperResNet_disc_%03d.pt'%post_training_epoch)
