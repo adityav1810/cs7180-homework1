@@ -14,7 +14,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 
-def perform_training(params):
+def train(params):
     '''
     Function to train the SuperResNet.
     '''
