@@ -9,3 +9,7 @@ Instructions to run the code
 1. setup pytorch
 2. use the terminal to run the model in train, test or validate mode
 
+#train the model
+python main.py --LR_path ./LR_imgs_dir --GT_path ./GT_imgs_dir
+
+
