@@ -14,7 +14,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 
-def run_validation(params):
+def validate(params):
     '''
     Function to conduct validation: SRGAN.
     '''
