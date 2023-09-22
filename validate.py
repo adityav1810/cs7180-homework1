@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 
 def run_validation(params):
     '''
-    Function to conduct validation on the SuperResNet.
+    Function to conduct validation: SRGAN.
     '''
     
     device_config = torch.device("cuda" if torch.cuda.is_available() else "cpu")
