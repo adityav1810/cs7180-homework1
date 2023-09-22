@@ -1,7 +1,7 @@
-CS7180 : Advanced Perception 
+#CS7180 : Advanced Perception 
 Homework 1 : Image Enhancement using SRGAN
 Authors : Luv Verma and Aditya Varshney
-
+----------------------
 
 This repository holds the entire codebase of our submission for Assigment 1 
 
