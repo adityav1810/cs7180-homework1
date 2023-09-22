@@ -3,108 +3,98 @@ CS 7180 : Advanced Perception
 Homework 1
 Authors : Luv Verma and Aditya Varshney
 
-This file contains theh building blocks of the NN
-defines the conv block, the Residual Block, upsampling block and discriminator
+This file contains the building blocks of the NN
+defines the convolutional block, the Residual Block, upsampling block, and discriminator
 '''
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class ConvHelper(nn.Conv2d):
+    '''
+    Helper for the convolutional block
+    '''
+    def __init__(self, input_channels, output_channels, filter_size, stride_val, padding_val, use_bias):
+        super(ConvHelper, self).__init__(input_channels, output_channels, filter_size, stride_val, padding_val, bias=use_bias)
+        
+        self.weight.data = torch.normal(torch.zeros((output_channels, input_channels, filter_size, filter_size)), 0.02)
+        self.bias.data = torch.zeros((output_channels))
+        
+        for param in self.parameters():
+            param.requires_grad = True
 
-class _conv(nn.Conv2d):
+class ConvolutionBlock(nn.Module):
     '''
-    defines the conv block helper
+    Main Convolutional Block
     '''
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, bias):
-        super(_conv, self).__init__(in_channels = in_channels, out_channels = out_channels, 
-                               kernel_size = kernel_size, stride = stride, padding = (kernel_size) // 2, bias = True)
+    def __init__(self, in_chan, out_chan, filter_size, use_bn=False, activation_fn=None, stride=1, use_bias=True):
+        super(ConvolutionBlock, self).__init__()
+        layers = []
+        layers.append(ConvHelper(in_chan, out_chan, filter_size, stride, filter_size // 2, use_bias))
+        if use_bn:
+            layers.append(nn.BatchNorm2d(out_chan))
+        if activation_fn:
+            layers.append(activation_fn)
+        self.module_seq = nn.Sequential(*layers)
         
-        self.weight.data = torch.normal(torch.zeros((out_channels, in_channels, kernel_size, kernel_size)), 0.02)
-        self.bias.data = torch.zeros((out_channels))
+    def forward(self, tensor_input):
+        return self.module_seq(tensor_input)
         
-        for p in self.parameters():
-            p.requires_grad = True
-        
-
-class conv(nn.Module):
+class ResidualBlock(nn.Module):
     '''
-    Main ConvBlock
+    Residual Block for the network
     '''
-    def __init__(self, in_channel, out_channel, kernel_size, BN = False, act = None, stride = 1, bias = True):
-        super(conv, self).__init__()
-        m = []
-        m.append(_conv(in_channels = in_channel, out_channels = out_channel, 
-                               kernel_size = kernel_size, stride = stride, padding = (kernel_size) // 2, bias = True))
-        if BN:
-            m.append(nn.BatchNorm2d(num_features = out_channel))
-        if act is not None:
-            m.append(act)
-        self.body = nn.Sequential(*m)
+    def __init__(self, chan_count, filter_size, activation_fn=nn.ReLU(inplace=True)):
+        super(ResidualBlock, self).__init__()
+        blocks = []
+        blocks.append(ConvolutionBlock(chan_count, chan_count, filter_size, use_bn=True, activation_fn=activation_fn))
+        blocks.append(ConvolutionBlock(chan_count, chan_count, filter_size, use_bn=True))
+        self.residual_seq = nn.Sequential(*blocks)
         
-    def forward(self, x):
-        out = self.body(x)
-        return out
-        
-class ResBlock(nn.Module):
-    '''
-    Residual Dense Block of the network
-    conv ->conv 
-    '''
-    def __init__(self, channels, kernel_size, act = nn.ReLU(inplace = True), bias = True):
-        super(ResBlock, self).__init__()
-        m = []
-        m.append(conv(channels, channels, kernel_size, BN = True, act = act))
-        m.append(conv(channels, channels, kernel_size, BN = True, act = None))
-        self.body = nn.Sequential(*m)
-        
-    def forward(self, x):
-        res = self.body(x)
-        res += x
-        return res
+    def forward(self, tensor_input):
+        residual = self.residual_seq(tensor_input)
+        return residual + tensor_input
     
-class BasicBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, num_res_block, act = nn.ReLU(inplace = True)):
-        super(BasicBlock, self).__init__()
-        m = []
-        self.conv = conv(in_channels, out_channels, kernel_size, BN = False, act = act)
-        for i in range(num_res_block):
-            m.append(ResBlock(out_channels, kernel_size, act))
-        m.append(conv(out_channels, out_channels, kernel_size, BN = True, act = None))
-        self.body = nn.Sequential(*m)
+class BaseBlock(nn.Module):
+    def __init__(self, input_channels, output_channels, filter_size, num_residuals, activation_fn=nn.ReLU(inplace=True)):
+        super(BaseBlock, self).__init__()
+        block_layers = []
+        self.init_conv = ConvolutionBlock(input_channels, output_channels, filter_size, activation_fn=activation_fn)
+        for _ in range(num_residuals):
+            block_layers.append(ResidualBlock(output_channels, filter_size, activation_fn))
+        block_layers.append(ConvolutionBlock(output_channels, output_channels, filter_size, use_bn=True))
+        self.block_seq = nn.Sequential(*block_layers)
         
-    def forward(self, x):
-        res = self.conv(x)
-        out = self.body(res)
-        out += res
-        return out
+    def forward(self, tensor_input):
+        initial = self.init_conv(tensor_input)
+        block_output = self.block_seq(initial)
+        return block_output + initial
         
-class Upsampler(nn.Module):
+class UpscaleBlock(nn.Module):
     '''
-    Upsample block
+    Upsampling Block
     '''
-    def __init__(self, channel, kernel_size, scale, act = nn.ReLU(inplace = True)):
-        super(Upsampler, self).__init__()
-        m = []
-        m.append(conv(channel, channel * scale * scale, kernel_size))
-        m.append(nn.PixelShuffle(scale))
-        if act is not None:
-            m.append(act)
-        self.body = nn.Sequential(*m)
-    def forward(self, x):
-        out = self.body(x)
-        return out
+    def __init__(self, channels, filter_size, scale_factor, activation_fn=nn.ReLU(inplace=True)):
+        super(UpscaleBlock, self).__init__()
+        layers = []
+        layers.append(ConvolutionBlock(channels, channels * scale_factor * scale_factor, filter_size))
+        layers.append(nn.PixelShuffle(scale_factor))
+        if activation_fn:
+            layers.append(activation_fn)
+        self.up_seq = nn.Sequential(*layers)
+    def forward(self, tensor_input):
+        return self.up_seq(tensor_input)
 
-class discrim_block(nn.Module):
+class DiscriminatorBlock(nn.Module):
     '''
-    Discriminator Network
+    Block for Discriminator Network
     '''
-    def __init__(self, in_feats, out_feats, kernel_size, act = nn.LeakyReLU(inplace = True)):
-        super(discrim_block, self).__init__()
-        m = []
-        m.append(conv(in_feats, out_feats, kernel_size, BN = True, act = act))
-        m.append(conv(out_feats, out_feats, kernel_size, BN = True, act = act, stride = 2))
-        self.body = nn.Sequential(*m)
-    def forward(self, x):
-        out = self.body(x)
-        return out
-
+    def __init__(self, input_features, output_features, filter_size, activation_fn=nn.LeakyReLU(inplace=True)):
+        super(DiscriminatorBlock, self).__init__()
+        blocks = []
+        blocks.append(ConvolutionBlock(input_features, output_features, filter_size, use_bn=True, activation_fn=activation_fn))
+        blocks.append(ConvolutionBlock(output_features, output_features, filter_size, use_bn=True, activation_fn=activation_fn, stride=2))
+        self.discrim_seq = nn.Sequential(*blocks)
+    def forward(self, tensor_input):
+        return self.discrim_seq(tensor_input)
