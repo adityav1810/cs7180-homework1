@@ -14,169 +14,158 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 
-class mydata(Dataset):
+class CustomData(Dataset):
     '''
         Custom DataLoader for training purposes.
-        Loads images from LR_PATH and GT_PATH.
-        Converts them into list of np images.
+        Loads images from lr_dir and hr_dir.
+        Converts them into list of numpy images.
     '''
     
-    def __init__(self, LR_path, GT_path, in_memory = True, transform = None):
+    def __init__(self, lr_dir, hr_dir, cache_in_memory=True, data_transform=None):
         '''
-        Init method to load entire data
+        Constructor to load entire data
         '''
         
-        self.LR_path = LR_path
-        self.GT_path = GT_path
-        self.in_memory = in_memory
-        self.transform = transform
+        self.lr_dir = lr_dir
+        self.hr_dir = hr_dir
+        self.cache_in_memory = cache_in_memory
+        self.data_transform = data_transform
         
-        self.LR_img = sorted(os.listdir(LR_path))
-        self.GT_img = sorted(os.listdir(GT_path))
+        self.lr_files = sorted(os.listdir(lr_dir))
+        self.hr_files = sorted(os.listdir(hr_dir))
         
-        if in_memory:
-            self.LR_img = [np.array(Image.open(os.path.join(self.LR_path, lr)).convert("RGB")).astype(np.uint8) for lr in self.LR_img]
-            self.GT_img = [np.array(Image.open(os.path.join(self.GT_path, gt)).convert("RGB")).astype(np.uint8) for gt in self.GT_img]
+        if cache_in_memory:
+            self.lr_files = [np.array(Image.open(os.path.join(self.lr_dir, img_path)).convert("RGB")).astype(np.uint8) for img_path in self.lr_files]
+            self.hr_files = [np.array(Image.open(os.path.join(self.hr_dir, img_path)).convert("RGB")).astype(np.uint8) for img_path in self.hr_files]
         
     def __len__(self):
         '''
-        returns length of dataset
+        returns size of dataset
         '''
         
-        return len(self.LR_img)
+        return len(self.lr_files)
         
-    def __getitem__(self, i):
+    def __getitem__(self, idx):
         '''
         returns one image from dataset
         '''
         
-        img_item = {}
+        img_data = {}
         
-        if self.in_memory:
-            GT = self.GT_img[i].astype(np.float32)
-            LR = self.LR_img[i].astype(np.float32)
+        if self.cache_in_memory:
+            hr_img = self.hr_files[idx].astype(np.float32)
+            lr_img = self.lr_files[idx].astype(np.float32)
             
         else:
-            GT = np.array(Image.open(os.path.join(self.GT_path, self.GT_img[i])).convert("RGB"))
-            LR = np.array(Image.open(os.path.join(self.LR_path, self.LR_img[i])).convert("RGB"))
+            hr_img = np.array(Image.open(os.path.join(self.hr_dir, self.hr_files[idx])).convert("RGB"))
+            lr_img = np.array(Image.open(os.path.join(self.lr_dir, self.lr_files[idx])).convert("RGB"))
 
-        img_item['GT'] = (GT / 127.5) - 1.0
-        img_item['LR'] = (LR / 127.5) - 1.0
+        img_data['hr_img'] = (hr_img / 127.5) - 1.0
+        img_data['lr_img'] = (lr_img / 127.5) - 1.0
                 
-        if self.transform is not None:
-            img_item = self.transform(img_item)
+        if self.data_transform is not None:
+            img_data = self.data_transform(img_data)
             
-        img_item['GT'] = img_item['GT'].transpose(2, 0, 1).astype(np.float32)
-        img_item['LR'] = img_item['LR'].transpose(2, 0, 1).astype(np.float32)
-        filename = self.LR_img[i] if self.in_memory else os.path.basename(os.path.join(self.LR_path, self.LR_img[i]))
-        img_item['filename'] = filename
+        img_data['hr_img'] = img_data['hr_img'].transpose(2, 0, 1).astype(np.float32)
+        img_data['lr_img'] = img_data['lr_img'].transpose(2, 0, 1).astype(np.float32)
+        img_name = self.lr_files[idx] if self.cache_in_memory else os.path.basename(os.path.join(self.lr_dir, self.lr_files[idx]))
+        img_data['img_name'] = img_name
 
-        return img_item
+        return img_data
     
     
-class testOnly_data(Dataset):
+class TestDataset(Dataset):
     '''
     Custom Dataloader for testing purposes.
     
     '''
-    def __init__(self, LR_path, in_memory = True, transform = None):
+    def __init__(self, lr_dir, cache_in_memory=True, data_transform=None):
         
-        self.LR_path = LR_path
-        self.LR_img = sorted(os.listdir(LR_path))
-        self.in_memory = in_memory
-        if in_memory:
-            self.LR_img = [np.array(Image.open(os.path.join(self.LR_path, lr))) for lr in self.LR_img]
+        self.lr_dir = lr_dir
+        self.lr_files = sorted(os.listdir(lr_dir))
+        self.cache_in_memory = cache_in_memory
+        if cache_in_memory:
+            self.lr_files = [np.array(Image.open(os.path.join(self.lr_dir, img_path))) for img_path in self.lr_files]
         
     def __len__(self):
         
-        return len(self.LR_img)
+        return len(self.lr_files)
         
-    def __getitem__(self, i):
+    def __getitem__(self, idx):
         
-        img_item = {}
+        img_data = {}
         
-        if self.in_memory:
-            LR = self.LR_img[i]
+        if self.cache_in_memory:
+            lr_img = self.lr_files[idx]
             
         else:
-            LR = np.array(Image.open(os.path.join(self.LR_path, self.LR_img[i])))
+            lr_img = np.array(Image.open(os.path.join(self.lr_dir, self.lr_files[idx])))
 
-        img_item['LR'] = (LR / 127.5) - 1.0                
-        img_item['LR'] = img_item['LR'].transpose(2, 0, 1).astype(np.float32)
+        img_data['lr_img'] = (lr_img / 127.5) - 1.0                
+        img_data['lr_img'] = img_data['lr_img'].transpose(2, 0, 1).astype(np.float32)
         
-        return img_item
+        return img_data
 
 
-class crop(object):
+class ImageCrop(object):
     '''
     Preprocessing class.
-    Class to perform cropping of an image.
+    Class to crop a part of an image.
     
     '''
-    def __init__(self, scale, patch_size):
+    def __init__(self, scaling_factor, patch_dimension):
         
-        self.scale = scale
-        self.patch_size = patch_size
+        self.scaling_factor = scaling_factor
+        self.patch_dimension = patch_dimension
         
-    def __call__(self, sample):
+    def __call__(self, img_sample):
         '''
-        crop image using patch_size and scale factor
+        crop image using patch_dimension and scaling factor
         '''
-        LR_img, GT_img = sample['LR'], sample['GT']
-        ih, iw = LR_img.shape[:2]
+        lr_img, hr_img = img_sample['lr_img'], img_sample['hr_img']
+        img_h, img_w = lr_img.shape[:2]
         
-        ix = random.randrange(0, iw - self.patch_size +1)
-        iy = random.randrange(0, ih - self.patch_size +1)
+        img_x = random.randrange(0, img_w - self.patch_dimension +1)
+        img_y = random.randrange(0, img_h - self.patch_dimension +1)
         
-        tx = ix * self.scale
-        ty = iy * self.scale
+        scaled_x = img_x * self.scaling_factor
+        scaled_y = img_y * self.scaling_factor
         
-        LR_patch = LR_img[iy : iy + self.patch_size, ix : ix + self.patch_size]
-        GT_patch = GT_img[ty : ty + (self.scale * self.patch_size), tx : tx + (self.scale * self.patch_size)]
+        lr_patch = lr_img[img_y : img_y + self.patch_dimension, img_x : img_x + self.patch_dimension]
+        hr_patch = hr_img[scaled_y : scaled_y + (self.scaling_factor * self.patch_dimension), scaled_x : scaled_x + (self.scaling_factor * self.patch_dimension)]
         
-        return {'LR' : LR_patch, 'GT' : GT_patch}
+        return {'lr_img' : lr_patch, 'hr_img' : hr_patch}
 
-class augmentation(object):
+class ImageFlip(object):
     '''
     Preprocessing class.
-    Class to perform Flipping of an image.
+    Class to flip an image.
     '''
     
-    def __call__(self, sample):
+    def __call__(self, img_sample):
         '''
-        randomly choose if an image is to be rotated and flipped horizontally or vertically.
-        and perform the augmentation
+        Decide whether to rotate and/or flip an image horizontally or vertically.
+        Perform the operation accordingly.
         '''
-        LR_img, GT_img = sample['LR'], sample['GT']
+        lr_img, hr_img = img_sample['lr_img'], img_sample['hr_img']
         
-        hor_flip = random.randrange(0,2)
-        ver_flip = random.randrange(0,2)
-        rot = random.randrange(0,2)
+        horizontal_flip = random.randrange(0,2)
+        vertical_flip = random.randrange(0,2)
+        rotate_flag = random.randrange(0,2)
     
-        if hor_flip:
+        if horizontal_flip:
             # horizontal flip             
-            temp_LR = np.fliplr(LR_img)
-            LR_img = temp_LR.copy()
-            temp_GT = np.fliplr(GT_img)
-            GT_img = temp_GT.copy()
-            
-            del temp_LR, temp_GT
+            lr_img = np.fliplr(lr_img)
+            hr_img = np.fliplr(hr_img)
         
-        if ver_flip:
+        if vertical_flip:
             # vertical flip
-            temp_LR = np.flipud(LR_img)
-            LR_img = temp_LR.copy()
-            temp_GT = np.flipud(GT_img)
-            GT_img = temp_GT.copy()
+            lr_img = np.flipud(lr_img)
+            hr_img = np.flipud(hr_img)
             
-            del temp_LR, temp_GT
-            
-        if rot:
-            # rotate iamge             
-            LR_img = LR_img.transpose(1, 0, 2)
-            GT_img = GT_img.transpose(1, 0, 2)
+        if rotate_flag:
+            # rotate image             
+            lr_img = lr_img.transpose(1, 0, 2)
+            hr_img = hr_img.transpose(1, 0, 2)
         
-        
-        return {'LR' : LR_img, 'GT' : GT_img}
-        
-
+        return {'lr_img' : lr_img, 'hr_img' : hr_img}
