@@ -5,6 +5,7 @@ Authors : Luv Verma and Aditya Varshney
 
 This file contains the validation functionality
 '''
+
 import torch
 from torch.utils.data import Dataset
 import os
@@ -13,30 +14,29 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 
-def validate(args):
+def run_validation(params):
     '''
-    Method to perform validation on the SRGAN
+    Function to conduct validation on the SuperResNet.
     '''
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dataset = testOnly_data(LR_path = args.LR_path, in_memory = False, transform = None)
-    loader = DataLoader(dataset, batch_size = 1, shuffle = False, num_workers = args.num_workers)
+    device_config = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    data_set = TestData(LR_path = params.LR_path, in_memory = False, transform = None)
+    data_loader = DataLoader(data_set, batch_size = 1, shuffle = False, num_workers = params.num_workers)
     
-    generator = Generator(img_feat = 3, n_feats = 64, kernel_size = 3, num_block = args.res_num)
-    generator.load_state_dict(torch.load(args.generator_path))
-    generator = generator.to(device)
-    generator.eval()
+    superres_gen = SuperResGenerator(input_channels = 3, feature_channels = 64, filter_size = 3, num_res_blocks = params.res_num)
+    superres_gen.load_state_dict(torch.load(params.generator_path))
+    superres_gen = superres_gen.to(device_config)
+    superres_gen.eval()
     
     with torch.no_grad():
-        for i, te_data in enumerate(loader):
-            lr = te_data['LR'].to(device)
-            print("lr.shape",lr.shape)
-            output, _ = generator(lr)
+        for idx, data_point in enumerate(data_loader):
+            low_res = data_point['LR'].to(device_config)
+            print("low_res.shape",low_res.shape)
+            output_img, _ = superres_gen(low_res)
             
-            output = output[0].cpu().numpy()
-            output = (output + 1.0) / 2.0
-            output = output.transpose(1,2,0)
+            output_img = output_img[0].cpu().numpy()
+            output_img = (output_img + 1.0) / 2.0
+            output_img = output_img.transpose(1,2,0)
             
-            result = Image.fromarray((output * 255.0).astype(np.uint8))
-            result.save('./result/result_test_only_single_image_low_res_1500_epochs/res_%04d.png'%i)
-            
+            final_image = Image.fromarray((output_img * 255.0).astype(np.uint8))
+            final_image.save('./result/final_test_images_single_low_res_1500_epochs/final_img_%04d.png'%idx)
